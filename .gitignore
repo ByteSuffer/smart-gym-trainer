@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.DS_Store
+*.db
+*.sqlite
+node_modules/
+frontend/build/
+pose_landmarker_full.task
+gym_trainer.db
