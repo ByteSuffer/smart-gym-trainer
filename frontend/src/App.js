@@ -1,7 +1,3 @@
-
-
-////////////////////////////// new App.js
-
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
@@ -109,11 +105,21 @@ function drawSkeleton(ctx, landmarks, w, h) {
   });
 }
 
-function HUD({ exercise, repState, accuracy, sessionSecs, calories }) {
+function speak(text) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 1.1;
+  u.volume = 1;
+  window.speechSynthesis.speak(u);
+}
+
+function HUD({ exercise, repState, accuracy, sessionSecs, calories, poseStatus }) {
   const mins = String(Math.floor(sessionSecs / 60)).padStart(2, "0");
   const secs = String(sessionSecs % 60).padStart(2, "0");
   const isPlank = exercise.id === "plank";
   const accColor = accuracy >= 80 ? "#00e676" : accuracy >= 60 ? "#ffa726" : "#ef5350";
+
   return (
     <div style={{
       position: "absolute", top: 0, left: 0, right: 0,
@@ -125,7 +131,16 @@ function HUD({ exercise, repState, accuracy, sessionSecs, calories }) {
         <div style={{ color: exercise.color, fontSize: 14, fontWeight: 600, letterSpacing: 2 }}>
           {exercise.name.toUpperCase()}
         </div>
-        <div style={{ color: "#555", fontSize: 11, marginBottom: 4 }}>{exercise.view}</div>
+        <div style={{ color: "#555", fontSize: 11, marginBottom: 2 }}>{exercise.view}</div>
+        <div style={{
+          fontSize: 11, marginBottom: 4,
+          color: poseStatus === "detecting" ? "#00e676"
+               : poseStatus === "loading"   ? "#ffa726" : "#ef5350"
+        }}>
+          {poseStatus === "detecting" ? "🟢 Pose detected"
+         : poseStatus === "loading"   ? "🟡 Loading AI model..."
+         : "🔴 No pose — step back & face camera"}
+        </div>
         <div style={{ color: "#888", fontSize: 11 }}>{isPlank ? "SECS" : "REPS"}</div>
         <div style={{ color: "#00ff88", fontSize: 72, fontWeight: 800, lineHeight: 1 }}>
           {repState.reps}
@@ -171,19 +186,19 @@ export default function App() {
   const [calories, setCalories]       = useState(0);
   const [sessions, setSessions]       = useState([]);
   const [stats, setStats]             = useState(null);
+  const [poseStatus, setPoseStatus]   = useState("loading");
 
   const videoRef      = useRef(null);
   const canvasRef     = useRef(null);
   const poseRef       = useRef(null);
   const stateRef      = useRef({ reps: 0, current: "STANDING" });
-  const startTimeRef  = useRef(null);
   const plankStartRef = useRef(null);
   const activeTimeRef = useRef(0);
   const lastCalRef    = useRef(Date.now());
   const accuracyRef   = useRef({ good: 0, total: 0 });
-  const frameLoopRef  = useRef(null);  // ← NEW: store interval ref here
+  const frameLoopRef  = useRef(null);
+  const lastRepRef    = useRef(0);
 
-  // Load MediaPipe from CDN
   useEffect(() => {
     const script1 = document.createElement("script");
     script1.src = "https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js";
@@ -194,11 +209,8 @@ export default function App() {
     script2.src = "https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js";
     script2.crossOrigin = "anonymous";
     document.head.appendChild(script2);
-
-    script2.onload = () => { window._poseReady = true; };
   }, []);
 
-  // Session timer
   useEffect(() => {
     if (screen !== "workout") return;
     const interval = setInterval(() => {
@@ -218,10 +230,10 @@ export default function App() {
     activeTimeRef.current = 0;
     lastCalRef.current = Date.now();
     accuracyRef.current = { good: 0, total: 0 };
-    startTimeRef.current = Date.now();
     plankStartRef.current = null;
+    lastRepRef.current = 0;
+    setPoseStatus("loading");
 
-    // Wait for MediaPipe Pose to load
     await new Promise(resolve => {
       if (window.Pose) return resolve();
       const check = setInterval(() => {
@@ -237,8 +249,8 @@ export default function App() {
     pose.setOptions({
       modelComplexity: 1,
       smoothLandmarks: true,
-      minDetectionConfidence: 0.6,
-      minTrackingConfidence: 0.6,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
     });
 
     pose.onResults((results) => {
@@ -251,8 +263,12 @@ export default function App() {
       canvas.height = video.videoHeight || 480;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      if (!results.poseLandmarks) return;
+      if (!results.poseLandmarks) {
+        setPoseStatus("lost");
+        return;
+      }
 
+      setPoseStatus("detecting");
       const lm = results.poseLandmarks;
       drawSkeleton(ctx, lm, canvas.width, canvas.height);
 
@@ -271,6 +287,16 @@ export default function App() {
         result = analyzePlank(lm, stateRef.current, plankStartRef.current);
       }
       else result = analyzeCurl(lm, stateRef.current);
+
+      // Voice: announce each new rep
+      if (result.reps > lastRepRef.current) {
+        speak(`${result.reps}`);
+        lastRepRef.current = result.reps;
+      }
+      // Voice: form feedback (once every 30 frames)
+      if (result.feedback.length > 0 && accuracyRef.current.total % 30 === 0) {
+        speak(result.feedback[0]);
+      }
 
       stateRef.current = result;
       setRepState({ reps: result.reps, current: result.current });
@@ -296,8 +322,6 @@ export default function App() {
 
     poseRef.current = pose;
 
-    // ── FIXED CAMERA SECTION ──────────────────────────────────────────
-    // Single getUserMedia call — no window.Camera which causes NotReadableError
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -309,7 +333,6 @@ export default function App() {
       });
     } catch (e1) {
       try {
-        // Fallback: accept any camera
         stream = await navigator.mediaDevices.getUserMedia({ video: true });
       } catch (e2) {
         alert(`Camera error: ${e2.name}: ${e2.message}`);
@@ -319,38 +342,34 @@ export default function App() {
     }
 
     videoRef.current.srcObject = stream;
-
-    // Wait for video metadata before playing
     await new Promise(resolve => {
       videoRef.current.onloadedmetadata = resolve;
     });
     await videoRef.current.play();
 
-    // Send frames manually — avoids double getUserMedia call from window.Camera
+    // 15fps frame loop
     frameLoopRef.current = setInterval(async () => {
       if (
         videoRef.current &&
         videoRef.current.readyState >= 2 &&
         poseRef.current
       ) {
-        await poseRef.current.send({ image: videoRef.current });
+        try {
+          await poseRef.current.send({ image: videoRef.current });
+        } catch (e) { /* ignore */ }
       }
-    }, 100); // 10fps — enough for pose detection
-    // ── END FIXED CAMERA SECTION ──────────────────────────────────────
+    }, 67);
   };
 
   const endWorkout = async () => {
-    // Stop frame loop
     if (frameLoopRef.current) {
       clearInterval(frameLoopRef.current);
       frameLoopRef.current = null;
     }
-
-    // Stop camera stream
     const stream = videoRef.current?.srcObject;
     stream?.getTracks().forEach(t => t.stop());
-
     poseRef.current?.close();
+    window.speechSynthesis?.cancel();
 
     try {
       await axios.post(`${API}/sessions/`, {
@@ -363,7 +382,6 @@ export default function App() {
     } catch (e) {
       console.log("API save failed:", e);
     }
-
     setScreen("home");
   };
 
@@ -389,7 +407,6 @@ export default function App() {
     fontFamily: "'Segoe UI', sans-serif"
   };
 
-  // HOME SCREEN
   if (screen === "home") return (
     <div style={{ ...baseStyle, display: "flex", flexDirection: "column",
                   alignItems: "center", padding: "40px 20px" }}>
@@ -446,7 +463,6 @@ export default function App() {
     </div>
   );
 
-  // WORKOUT SCREEN
   if (screen === "workout") return (
     <div style={{ ...baseStyle, position: "relative", overflow: "hidden" }}>
       <video ref={videoRef} style={{
@@ -462,7 +478,7 @@ export default function App() {
 
       <HUD exercise={exercise} repState={repState}
            accuracy={accuracy} sessionSecs={sessionSecs}
-           calories={calories} />
+           calories={calories} poseStatus={poseStatus} />
 
       {feedback.length > 0 && (
         <div style={{
@@ -494,6 +510,7 @@ export default function App() {
             stateRef.current = { reps: 0, current: "STANDING" };
             setRepState({ reps: 0, current: "STANDING" });
             accuracyRef.current = { good: 0, total: 0 };
+            lastRepRef.current = 0;
           }} style={{
             padding: "8px 14px", borderRadius: 20,
             border: `1px solid ${exercise.id === ex.id ? ex.color : "#333"}`,
@@ -517,7 +534,6 @@ export default function App() {
     </div>
   );
 
-  // HISTORY SCREEN
   if (screen === "history") return (
     <div style={{ ...baseStyle, padding: "24px 20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
