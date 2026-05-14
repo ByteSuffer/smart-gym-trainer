@@ -279,6 +279,9 @@
 // }
 
 
+
+////////////////////////////// new App.js
+
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
@@ -295,7 +298,6 @@ const MET_VALUES = {
   squats: 5.0, pushups: 8.0, plank: 4.0, bicepcurls: 3.0
 };
 
-// ── Angle calculator ────────────────────────────────────────────────────────
 function calcAngle(a, b, c) {
   const radians = Math.atan2(c.y - b.y, c.x - b.x)
                 - Math.atan2(a.y - b.y, a.x - b.x);
@@ -304,54 +306,38 @@ function calcAngle(a, b, c) {
   return Math.round(angle);
 }
 
-// ── Exercise analyzers ──────────────────────────────────────────────────────
 function analyzeSquat(lm, state) {
-  const knee = calcAngle(lm[23], lm[25], lm[27]);   // hip→knee→ankle
+  const knee = calcAngle(lm[23], lm[25], lm[27]);
   const feedback = [];
   let newState = state.current;
   let reps = state.reps;
-
-  if (knee < 100 && state.current === "STANDING") {
-    newState = "DOWN";
-  }
-  if (knee > 160 && state.current === "DOWN") {
-    newState = "STANDING";
-    reps += 1;
-  }
+  if (knee < 100 && state.current === "STANDING") newState = "DOWN";
+  if (knee > 160 && state.current === "DOWN") { newState = "STANDING"; reps += 1; }
   if (knee < 90) feedback.push("Good depth! Keep going");
   if (knee > 100 && state.current === "DOWN") feedback.push("Go lower!");
-
   return { reps, current: newState, feedback, angle: knee, label: "Knee" };
 }
 
 function analyzePushup(lm, state) {
-  const elbow = calcAngle(lm[11], lm[13], lm[15]);  // shoulder→elbow→wrist
+  const elbow = calcAngle(lm[11], lm[13], lm[15]);
   const feedback = [];
   let newState = state.current;
   let reps = state.reps;
-
   if (elbow < 90 && state.current === "UP") newState = "DOWN";
-  if (elbow > 160 && state.current === "DOWN") {
-    newState = "UP";
-    reps += 1;
-  }
-
-  // Hip sag check
+  if (elbow > 160 && state.current === "DOWN") { newState = "UP"; reps += 1; }
   const hipY = lm[23].y;
   const shoulderY = lm[11].y;
   const ankleY = lm[27].y;
   if (Math.abs(hipY - (shoulderY + ankleY) / 2) > 0.05)
     feedback.push("Keep body straight!");
-
   return { reps, current: newState, feedback, angle: elbow, label: "Elbow" };
 }
 
 function analyzePlank(lm, state, startTime) {
-  const body = calcAngle(lm[11], lm[23], lm[27]);   // shoulder→hip→ankle
+  const body = calcAngle(lm[11], lm[23], lm[27]);
   const feedback = [];
   let duration = state.reps;
   let newState = state.current;
-
   if (body > 150) {
     newState = "HOLD";
     duration = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
@@ -360,7 +346,6 @@ function analyzePlank(lm, state, startTime) {
     if (lm[23].y < lm[11].y - 0.05) feedback.push("Lower your hips!");
     if (lm[23].y > lm[27].y + 0.05) feedback.push("Raise your hips!");
   }
-
   return { reps: duration, current: newState, feedback, angle: body, label: "Body" };
 }
 
@@ -371,22 +356,14 @@ function analyzeCurl(lm, state) {
   const feedback = [];
   let newState = state.current;
   let reps = state.reps;
-
   if (elbow < 50 && state.current === "DOWN") newState = "UP";
-  if (elbow > 150 && state.current === "UP") {
-    newState = "DOWN";
-    reps += 1;
-  }
-
+  if (elbow > 150 && state.current === "UP") { newState = "DOWN"; reps += 1; }
   const leftDrift  = Math.abs(lm[13].x - lm[23].x);
   const rightDrift = Math.abs(lm[14].x - lm[24].x);
-  if ((leftDrift + rightDrift) / 2 > 0.15)
-    feedback.push("Keep elbows close!");
-
+  if ((leftDrift + rightDrift) / 2 > 0.15) feedback.push("Keep elbows close!");
   return { reps, current: newState, feedback, angle: elbow, label: "Elbow" };
 }
 
-// ── Draw skeleton on canvas ─────────────────────────────────────────────────
 const CONNECTIONS = [
   [11,12],[11,13],[13,15],[12,14],[14,16],
   [11,23],[12,24],[23,24],[23,25],[24,26],
@@ -412,13 +389,11 @@ function drawSkeleton(ctx, landmarks, w, h) {
   });
 }
 
-// ── HUD overlay ─────────────────────────────────────────────────────────────
 function HUD({ exercise, repState, accuracy, sessionSecs, calories }) {
   const mins = String(Math.floor(sessionSecs / 60)).padStart(2, "0");
   const secs = String(sessionSecs % 60).padStart(2, "0");
   const isPlank = exercise.id === "plank";
   const accColor = accuracy >= 80 ? "#00e676" : accuracy >= 60 ? "#ffa726" : "#ef5350";
-
   return (
     <div style={{
       position: "absolute", top: 0, left: 0, right: 0,
@@ -426,7 +401,6 @@ function HUD({ exercise, repState, accuracy, sessionSecs, calories }) {
       padding: "16px 24px", display: "flex", justifyContent: "space-between",
       alignItems: "flex-start", pointerEvents: "none"
     }}>
-      {/* Left — exercise + reps */}
       <div>
         <div style={{ color: exercise.color, fontSize: 14, fontWeight: 600, letterSpacing: 2 }}>
           {exercise.name.toUpperCase()}
@@ -447,8 +421,6 @@ function HUD({ exercise, repState, accuracy, sessionSecs, calories }) {
           {repState.current}
         </div>
       </div>
-
-      {/* Right — stats */}
       <div style={{ textAlign: "right" }}>
         <div style={{ marginBottom: 12 }}>
           <div style={{ color: "#555", fontSize: 11 }}>ACCURACY</div>
@@ -469,9 +441,8 @@ function HUD({ exercise, repState, accuracy, sessionSecs, calories }) {
   );
 }
 
-// ── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [screen, setScreen]           = useState("home");    // home | workout | history
+  const [screen, setScreen]           = useState("home");
   const [exercise, setExercise]       = useState(EXERCISES[0]);
   const [repState, setRepState]       = useState({ reps: 0, current: "STANDING" });
   const [feedback, setFeedback]       = useState([]);
@@ -482,17 +453,18 @@ export default function App() {
   const [sessions, setSessions]       = useState([]);
   const [stats, setStats]             = useState(null);
 
-  const videoRef     = useRef(null);
-  const canvasRef    = useRef(null);
-  const poseRef      = useRef(null);
-  const stateRef     = useRef({ reps: 0, current: "STANDING" });
-  const startTimeRef = useRef(null);
-  const plankStartRef= useRef(null);
-  const activeTimeRef= useRef(0);
-  const lastCalRef   = useRef(Date.now());
-  const accuracyRef  = useRef({ good: 0, total: 0 });
+  const videoRef      = useRef(null);
+  const canvasRef     = useRef(null);
+  const poseRef       = useRef(null);
+  const stateRef      = useRef({ reps: 0, current: "STANDING" });
+  const startTimeRef  = useRef(null);
+  const plankStartRef = useRef(null);
+  const activeTimeRef = useRef(0);
+  const lastCalRef    = useRef(Date.now());
+  const accuracyRef   = useRef({ good: 0, total: 0 });
+  const frameLoopRef  = useRef(null);  // ← NEW: store interval ref here
 
-  // ── Load MediaPipe from CDN ────────────────────────────────────────
+  // Load MediaPipe from CDN
   useEffect(() => {
     const script1 = document.createElement("script");
     script1.src = "https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js";
@@ -507,7 +479,7 @@ export default function App() {
     script2.onload = () => setPoseReady(true);
   }, []);
 
-  // ── Session timer ──────────────────────────────────────────────────
+  // Session timer
   useEffect(() => {
     if (screen !== "workout") return;
     const interval = setInterval(() => {
@@ -516,7 +488,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [screen]);
 
-  // ── Start workout ──────────────────────────────────────────────────
   const startWorkout = async () => {
     setScreen("workout");
     setRepState({ reps: 0, current: "STANDING" });
@@ -531,9 +502,9 @@ export default function App() {
     startTimeRef.current = Date.now();
     plankStartRef.current = null;
 
-    // Wait for poseReady
+    // Wait for MediaPipe Pose to load
     await new Promise(resolve => {
-      if (poseReady) return resolve();
+      if (window.Pose) return resolve();
       const check = setInterval(() => {
         if (window.Pose) { clearInterval(check); resolve(); }
       }, 200);
@@ -559,7 +530,6 @@ export default function App() {
       const ctx = canvas.getContext("2d");
       canvas.width  = video.videoWidth  || 640;
       canvas.height = video.videoHeight || 480;
-
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       if (!results.poseLandmarks) return;
@@ -567,7 +537,6 @@ export default function App() {
       const lm = results.poseLandmarks;
       drawSkeleton(ctx, lm, canvas.width, canvas.height);
 
-      // Update timer + calories
       const now = Date.now();
       const elapsed = (now - lastCalRef.current) / 1000;
       lastCalRef.current = now;
@@ -575,9 +544,8 @@ export default function App() {
       const met = MET_VALUES[exercise.id] || 4;
       setCalories(prev => prev + (met * 70 * elapsed) / 3600);
 
-      // Analyze exercise
       let result;
-      if (exercise.id === "squats")     result = analyzeSquat(lm, stateRef.current);
+      if (exercise.id === "squats")       result = analyzeSquat(lm, stateRef.current);
       else if (exercise.id === "pushups") result = analyzePushup(lm, stateRef.current);
       else if (exercise.id === "plank") {
         if (!plankStartRef.current) plankStartRef.current = Date.now();
@@ -589,7 +557,6 @@ export default function App() {
       setRepState({ reps: result.reps, current: result.current });
       setFeedback(result.feedback);
 
-      // Accuracy
       accuracyRef.current.total++;
       if (result.feedback.length === 0) accuracyRef.current.good++;
       const acc = Math.round(
@@ -597,7 +564,6 @@ export default function App() {
       );
       setAccuracy(acc);
 
-      // Draw angle
       if (result.angle && lm[25]) {
         ctx.fillStyle = "#ffeb3b";
         ctx.font = "bold 18px Arial";
@@ -611,30 +577,62 @@ export default function App() {
 
     poseRef.current = pose;
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: 640, height: 480 }
-    });
-    videoRef.current.srcObject = stream;
-    videoRef.current.play();
+    // ── FIXED CAMERA SECTION ──────────────────────────────────────────
+    // Single getUserMedia call — no window.Camera which causes NotReadableError
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "user" },
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        }
+      });
+    } catch (e1) {
+      try {
+        // Fallback: accept any camera
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      } catch (e2) {
+        alert(`Camera error: ${e2.name}: ${e2.message}`);
+        setScreen("home");
+        return;
+      }
+    }
 
-    const camera = new window.Camera(videoRef.current, {
-      onFrame: async () => {
-        await pose.send({ image: videoRef.current });
-      },
-      width: 640,
-      height: 480,
+    videoRef.current.srcObject = stream;
+
+    // Wait for video metadata before playing
+    await new Promise(resolve => {
+      videoRef.current.onloadedmetadata = resolve;
     });
-    camera.start();
+    await videoRef.current.play();
+
+    // Send frames manually — avoids double getUserMedia call from window.Camera
+    frameLoopRef.current = setInterval(async () => {
+      if (
+        videoRef.current &&
+        videoRef.current.readyState >= 2 &&
+        poseRef.current
+      ) {
+        await poseRef.current.send({ image: videoRef.current });
+      }
+    }, 100); // 10fps — enough for pose detection
+    // ── END FIXED CAMERA SECTION ──────────────────────────────────────
   };
 
-  // ── End workout ────────────────────────────────────────────────────
   const endWorkout = async () => {
-    // Stop camera
+    // Stop frame loop
+    if (frameLoopRef.current) {
+      clearInterval(frameLoopRef.current);
+      frameLoopRef.current = null;
+    }
+
+    // Stop camera stream
     const stream = videoRef.current?.srcObject;
     stream?.getTracks().forEach(t => t.stop());
+
     poseRef.current?.close();
 
-    // Save to API
     try {
       await axios.post(`${API}/sessions/`, {
         exercise: exercise.name,
@@ -650,7 +648,6 @@ export default function App() {
     setScreen("home");
   };
 
-  // ── Load history ───────────────────────────────────────────────────
   const loadHistory = async () => {
     setScreen("history");
     try {
@@ -668,7 +665,6 @@ export default function App() {
   const fmtTime = (s) => `${Math.floor(s/60)}m ${s%60}s`;
   const accColor = (a) => a >= 80 ? "#00e676" : a >= 60 ? "#ffa726" : "#ef5350";
 
-  // ── Screens ────────────────────────────────────────────────────────
   const baseStyle = {
     minHeight: "100vh", background: "#0a0a12", color: "#fff",
     fontFamily: "'Segoe UI', sans-serif"
@@ -682,10 +678,10 @@ export default function App() {
       <h1 style={{ color: "#00e5ff", margin: 0, fontSize: 28 }}>Smart Gym Trainer</h1>
       <p style={{ color: "#555", marginBottom: 40 }}>AI-powered workout assistant</p>
 
-      {/* Exercise picker */}
       <div style={{ width: "100%", maxWidth: 500, marginBottom: 32 }}>
-        <div style={{ color: "#888", fontSize: 12, marginBottom: 12,
-                      letterSpacing: 2 }}>SELECT EXERCISE</div>
+        <div style={{ color: "#888", fontSize: 12, marginBottom: 12, letterSpacing: 2 }}>
+          SELECT EXERCISE
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           {EXERCISES.map(ex => (
             <div key={ex.id} onClick={() => setExercise(ex)} style={{
@@ -694,16 +690,13 @@ export default function App() {
               background: exercise.id === ex.id ? `${ex.color}15` : "#13131f",
               transition: "all 0.2s"
             }}>
-              <div style={{ color: ex.color, fontWeight: 600, marginBottom: 4 }}>
-                {ex.name}
-              </div>
+              <div style={{ color: ex.color, fontWeight: 600, marginBottom: 4 }}>{ex.name}</div>
               <div style={{ color: "#555", fontSize: 12 }}>{ex.view}</div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Camera tip */}
       <div style={{
         width: "100%", maxWidth: 500, background: "#13131f",
         borderRadius: 12, padding: "14px 18px", marginBottom: 24,
@@ -715,13 +708,11 @@ export default function App() {
           : "facing the camera directly, 2-3m away"}
       </div>
 
-      {/* Start button */}
       <button onClick={startWorkout} style={{
         width: "100%", maxWidth: 500, padding: "18px",
         background: "linear-gradient(135deg, #00b0ff, #00e5ff)",
         border: "none", borderRadius: 14, color: "#000",
-        fontSize: 18, fontWeight: 700, cursor: "pointer",
-        marginBottom: 12
+        fontSize: 18, fontWeight: 700, cursor: "pointer", marginBottom: 12
       }}>
         🎯 Start {exercise.name}
       </button>
@@ -729,8 +720,7 @@ export default function App() {
       <button onClick={loadHistory} style={{
         width: "100%", maxWidth: 500, padding: "14px",
         background: "#13131f", border: "1px solid #1e1e2e",
-        borderRadius: 14, color: "#888", fontSize: 14,
-        cursor: "pointer"
+        borderRadius: 14, color: "#888", fontSize: 14, cursor: "pointer"
       }}>
         📊 View Workout History
       </button>
@@ -740,25 +730,21 @@ export default function App() {
   // WORKOUT SCREEN
   if (screen === "workout") return (
     <div style={{ ...baseStyle, position: "relative", overflow: "hidden" }}>
-      {/* Video */}
       <video ref={videoRef} style={{
         width: "100%", height: "100vh", objectFit: "cover",
-        transform: "scaleX(-1)"   // mirror
+        transform: "scaleX(-1)"
       }} playsInline muted />
 
-      {/* Canvas overlay */}
       <canvas ref={canvasRef} style={{
         position: "absolute", top: 0, left: 0,
         width: "100%", height: "100%",
         transform: "scaleX(-1)"
       }} />
 
-      {/* HUD */}
       <HUD exercise={exercise} repState={repState}
            accuracy={accuracy} sessionSecs={sessionSecs}
            calories={calories} />
 
-      {/* Feedback warnings */}
       {feedback.length > 0 && (
         <div style={{
           position: "absolute", top: "45%", left: "50%",
@@ -779,11 +765,9 @@ export default function App() {
         </div>
       )}
 
-      {/* Exercise switcher */}
       <div style={{
         position: "absolute", bottom: 20, left: "50%",
-        transform: "translateX(-50%)",
-        display: "flex", gap: 8
+        transform: "translateX(-50%)", display: "flex", gap: 8
       }}>
         {EXERCISES.map(ex => (
           <button key={ex.id} onClick={() => {
@@ -803,7 +787,6 @@ export default function App() {
         ))}
       </div>
 
-      {/* End button */}
       <button onClick={endWorkout} style={{
         position: "absolute", top: 20, right: 20,
         padding: "10px 20px", background: "rgba(200,0,0,0.8)",
@@ -818,8 +801,7 @@ export default function App() {
   // HISTORY SCREEN
   if (screen === "history") return (
     <div style={{ ...baseStyle, padding: "24px 20px" }}>
-      <div style={{ display: "flex", alignItems: "center",
-                    gap: 12, marginBottom: 24 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
         <button onClick={() => setScreen("home")} style={{
           background: "#13131f", border: "1px solid #1e1e2e",
           borderRadius: 8, color: "#888", padding: "8px 14px",
@@ -828,7 +810,6 @@ export default function App() {
         <h2 style={{ margin: 0, color: "#00e5ff" }}>Workout History</h2>
       </div>
 
-      {/* Stats */}
       {stats && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
                       gap: 10, marginBottom: 24 }}>
@@ -844,16 +825,17 @@ export default function App() {
               background: "#13131f", borderRadius: 10,
               padding: "12px", textAlign: "center"
             }}>
-              <div style={{ color: "#555", fontSize: 10,
-                            marginBottom: 4 }}>{label.toUpperCase()}</div>
-              <div style={{ color: "#00e5ff", fontSize: 18,
-                            fontWeight: 700 }}>{val}{unit}</div>
+              <div style={{ color: "#555", fontSize: 10, marginBottom: 4 }}>
+                {label.toUpperCase()}
+              </div>
+              <div style={{ color: "#00e5ff", fontSize: 18, fontWeight: 700 }}>
+                {val}{unit}
+              </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Session list */}
       {sessions.length === 0 ? (
         <div style={{ textAlign: "center", color: "#555", padding: 40 }}>
           No sessions yet. Complete a workout first!
@@ -863,8 +845,7 @@ export default function App() {
           <div key={s.id} style={{
             background: "#13131f", borderRadius: 12,
             padding: "14px 16px", marginBottom: 10,
-            display: "flex", justifyContent: "space-between",
-            alignItems: "center"
+            display: "flex", justifyContent: "space-between", alignItems: "center"
           }}>
             <div>
               <div style={{ fontWeight: 600, marginBottom: 4 }}>{s.exercise}</div>
