@@ -4,107 +4,162 @@ import axios from "axios";
 const API = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
 const EXERCISES = [
-  { id: "squats",      name: "Squats",       view: "Side View",  key: "1", color: "#00b0ff" },
-  { id: "pushups",     name: "Push-ups",     view: "Side View",  key: "2", color: "#ff4081" },
-  { id: "plank",       name: "Plank",        view: "Side View",  key: "3", color: "#69f0ae" },
-  { id: "bicepcurls",  name: "Bicep Curls",  view: "Front View", key: "4", color: "#ffd740" },
+  { id: "squats",     name: "Squats",      view: "Side View",  key: "1", color: "#00b0ff" },
+  { id: "pushups",    name: "Push-ups",    view: "Side View",  key: "2", color: "#ff4081" },
+  { id: "plank",      name: "Plank",       view: "Side View",  key: "3", color: "#69f0ae" },
+  { id: "bicepcurls", name: "Bicep Curls", view: "Front View", key: "4", color: "#ffd740" },
 ];
 
 const MET_VALUES = {
   squats: 5.0, pushups: 8.0, plank: 4.0, bicepcurls: 3.0
 };
 
+// ── MoveNet keypoint indices ─────────────────────────────────────────────────
+// 0:nose 1:left_eye 2:right_eye 3:left_ear 4:right_ear
+// 5:left_shoulder 6:right_shoulder 7:left_elbow 8:right_elbow
+// 9:left_wrist 10:right_wrist 11:left_hip 12:right_hip
+// 13:left_knee 14:right_knee 15:left_ankle 16:right_ankle
+const KP = {
+  LEFT_SHOULDER: 5,  RIGHT_SHOULDER: 6,
+  LEFT_ELBOW: 7,     RIGHT_ELBOW: 8,
+  LEFT_WRIST: 9,     RIGHT_WRIST: 10,
+  LEFT_HIP: 11,      RIGHT_HIP: 12,
+  LEFT_KNEE: 13,     RIGHT_KNEE: 14,
+  LEFT_ANKLE: 15,    RIGHT_ANKLE: 16,
+};
+
+const SKELETON_CONNECTIONS = [
+  [5,6],[5,7],[7,9],[6,8],[8,10],
+  [5,11],[6,12],[11,12],
+  [11,13],[13,15],[12,14],[14,16],
+];
+
+// ── Angle calculator ─────────────────────────────────────────────────────────
 function calcAngle(a, b, c) {
-  const radians = Math.atan2(c.y - b.y, c.x - b.x)
-                - Math.atan2(a.y - b.y, a.x - b.x);
+  const radians = Math.atan2(c[1] - b[1], c[0] - b[0])
+                - Math.atan2(a[1] - b[1], a[0] - b[0]);
   let angle = Math.abs(radians * 180 / Math.PI);
   if (angle > 180) angle = 360 - angle;
   return Math.round(angle);
 }
 
-function analyzeSquat(lm, state) {
-  const knee = calcAngle(lm[23], lm[25], lm[27]);
-  const feedback = [];
-  let newState = state.current;
-  let reps = state.reps;
-  if (knee < 100 && state.current === "STANDING") newState = "DOWN";
-  if (knee > 160 && state.current === "DOWN") { newState = "STANDING"; reps += 1; }
-  if (knee < 90) feedback.push("Good depth! Keep going");
-  if (knee > 100 && state.current === "DOWN") feedback.push("Go lower!");
-  return { reps, current: newState, feedback, angle: knee, label: "Knee" };
+function kpXY(keypoints, idx) {
+  // MoveNet returns [y, x, score] per keypoint
+  const kp = keypoints[idx];
+  return [kp.x, kp.y];
 }
 
-function analyzePushup(lm, state) {
-  const elbow = calcAngle(lm[11], lm[13], lm[15]);
+// ── Exercise analyzers ───────────────────────────────────────────────────────
+function analyzeSquat(kps, state) {
+  const hip   = kpXY(kps, KP.LEFT_HIP);
+  const knee  = kpXY(kps, KP.LEFT_KNEE);
+  const ankle = kpXY(kps, KP.LEFT_ANKLE);
+  const angle = calcAngle(hip, knee, ankle);
   const feedback = [];
   let newState = state.current;
   let reps = state.reps;
-  if (elbow < 90 && state.current === "UP") newState = "DOWN";
-  if (elbow > 160 && state.current === "DOWN") { newState = "UP"; reps += 1; }
-  const hipY = lm[23].y;
-  const shoulderY = lm[11].y;
-  const ankleY = lm[27].y;
+
+  if (angle < 100 && state.current === "STANDING") newState = "DOWN";
+  if (angle > 160 && state.current === "DOWN") { newState = "STANDING"; reps += 1; }
+  if (angle < 90) feedback.push("Good depth!");
+  if (angle > 100 && state.current === "DOWN") feedback.push("Go lower!");
+
+  return { reps, current: newState, feedback, angle, label: "Knee" };
+}
+
+function analyzePushup(kps, state) {
+  const shoulder = kpXY(kps, KP.LEFT_SHOULDER);
+  const elbow    = kpXY(kps, KP.LEFT_ELBOW);
+  const wrist    = kpXY(kps, KP.LEFT_WRIST);
+  const angle = calcAngle(shoulder, elbow, wrist);
+  const feedback = [];
+  let newState = state.current;
+  let reps = state.reps;
+
+  if (angle < 90 && state.current === "UP") newState = "DOWN";
+  if (angle > 160 && state.current === "DOWN") { newState = "UP"; reps += 1; }
+
+  const hipY      = kpXY(kps, KP.LEFT_HIP)[1];
+  const shoulderY = kpXY(kps, KP.LEFT_SHOULDER)[1];
+  const ankleY    = kpXY(kps, KP.LEFT_ANKLE)[1];
   if (Math.abs(hipY - (shoulderY + ankleY) / 2) > 0.05)
     feedback.push("Keep body straight!");
-  return { reps, current: newState, feedback, angle: elbow, label: "Elbow" };
+
+  return { reps, current: newState, feedback, angle, label: "Elbow" };
 }
 
-function analyzePlank(lm, state, startTime) {
-  const body = calcAngle(lm[11], lm[23], lm[27]);
+function analyzePlank(kps, state, startTime) {
+  const shoulder = kpXY(kps, KP.LEFT_SHOULDER);
+  const hip      = kpXY(kps, KP.LEFT_HIP);
+  const ankle    = kpXY(kps, KP.LEFT_ANKLE);
+  const angle = calcAngle(shoulder, hip, ankle);
   const feedback = [];
   let duration = state.reps;
   let newState = state.current;
-  if (body > 150) {
+
+  if (angle > 150) {
     newState = "HOLD";
     duration = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
   } else {
     newState = "REST";
-    if (lm[23].y < lm[11].y - 0.05) feedback.push("Lower your hips!");
-    if (lm[23].y > lm[27].y + 0.05) feedback.push("Raise your hips!");
+    if (hip[1] < shoulder[1] - 0.05) feedback.push("Lower your hips!");
+    if (hip[1] > ankle[1] + 0.05)    feedback.push("Raise your hips!");
   }
-  return { reps: duration, current: newState, feedback, angle: body, label: "Body" };
+
+  return { reps: duration, current: newState, feedback, angle, label: "Body" };
 }
 
-function analyzeCurl(lm, state) {
-  const leftElbow  = calcAngle(lm[11], lm[13], lm[15]);
-  const rightElbow = calcAngle(lm[12], lm[14], lm[16]);
-  const elbow = Math.round((leftElbow + rightElbow) / 2);
+function analyzeCurl(kps, state) {
+  const lShoulder = kpXY(kps, KP.LEFT_SHOULDER);
+  const lElbow    = kpXY(kps, KP.LEFT_ELBOW);
+  const lWrist    = kpXY(kps, KP.LEFT_WRIST);
+  const rShoulder = kpXY(kps, KP.RIGHT_SHOULDER);
+  const rElbow    = kpXY(kps, KP.RIGHT_ELBOW);
+  const rWrist    = kpXY(kps, KP.RIGHT_WRIST);
+
+  const leftAngle  = calcAngle(lShoulder, lElbow, lWrist);
+  const rightAngle = calcAngle(rShoulder, rElbow, rWrist);
+  const angle = Math.round((leftAngle + rightAngle) / 2);
+
   const feedback = [];
   let newState = state.current;
   let reps = state.reps;
-  if (elbow < 50 && state.current === "DOWN") newState = "UP";
-  if (elbow > 150 && state.current === "UP") { newState = "DOWN"; reps += 1; }
-  const leftDrift  = Math.abs(lm[13].x - lm[23].x);
-  const rightDrift = Math.abs(lm[14].x - lm[24].x);
-  if ((leftDrift + rightDrift) / 2 > 0.15) feedback.push("Keep elbows close!");
-  return { reps, current: newState, feedback, angle: elbow, label: "Elbow" };
+
+  if (angle < 50 && state.current === "DOWN") newState = "UP";
+  if (angle > 150 && state.current === "UP") { newState = "DOWN"; reps += 1; }
+
+  const lDrift = Math.abs(lElbow[0] - kpXY(kps, KP.LEFT_HIP)[0]);
+  const rDrift = Math.abs(rElbow[0] - kpXY(kps, KP.RIGHT_HIP)[0]);
+  if ((lDrift + rDrift) / 2 > 0.15) feedback.push("Keep elbows close!");
+
+  return { reps, current: newState, feedback, angle, label: "Elbow" };
 }
 
-const CONNECTIONS = [
-  [11,12],[11,13],[13,15],[12,14],[14,16],
-  [11,23],[12,24],[23,24],[23,25],[24,26],
-  [25,27],[26,28],[27,29],[28,30]
-];
-
-function drawSkeleton(ctx, landmarks, w, h) {
+// ── Draw skeleton ────────────────────────────────────────────────────────────
+function drawSkeleton(ctx, keypoints, w, h) {
+  // Draw connections
   ctx.strokeStyle = "#00e5ff";
   ctx.lineWidth = 3;
-  CONNECTIONS.forEach(([a, b]) => {
-    if (!landmarks[a] || !landmarks[b]) return;
+  SKELETON_CONNECTIONS.forEach(([a, b]) => {
+    const kpA = keypoints[a];
+    const kpB = keypoints[b];
+    if (!kpA || !kpB || kpA.score < 0.3 || kpB.score < 0.3) return;
     ctx.beginPath();
-    ctx.moveTo(landmarks[a].x * w, landmarks[a].y * h);
-    ctx.lineTo(landmarks[b].x * w, landmarks[b].y * h);
+    ctx.moveTo(kpA.x * w, kpA.y * h);
+    ctx.lineTo(kpB.x * w, kpB.y * h);
     ctx.stroke();
   });
-  landmarks.forEach(lm => {
-    if (!lm) return;
+  // Draw joints
+  keypoints.forEach(kp => {
+    if (!kp || kp.score < 0.3) return;
     ctx.beginPath();
-    ctx.arc(lm.x * w, lm.y * h, 5, 0, 2 * Math.PI);
+    ctx.arc(kp.x * w, kp.y * h, 5, 0, 2 * Math.PI);
     ctx.fillStyle = "#00ff88";
     ctx.fill();
   });
 }
 
+// ── Voice feedback ───────────────────────────────────────────────────────────
 function speak(text) {
   if (!window.speechSynthesis) return;
   window.speechSynthesis.cancel();
@@ -114,6 +169,7 @@ function speak(text) {
   window.speechSynthesis.speak(u);
 }
 
+// ── HUD ──────────────────────────────────────────────────────────────────────
 function HUD({ exercise, repState, accuracy, sessionSecs, calories, poseStatus }) {
   const mins = String(Math.floor(sessionSecs / 60)).padStart(2, "0");
   const secs = String(sessionSecs % 60).padStart(2, "0");
@@ -138,7 +194,7 @@ function HUD({ exercise, repState, accuracy, sessionSecs, calories, poseStatus }
                : poseStatus === "loading"   ? "#ffa726" : "#ef5350"
         }}>
           {poseStatus === "detecting" ? "🟢 Pose detected"
-         : poseStatus === "loading"   ? "🟡 Loading AI model..."
+         : poseStatus === "loading"   ? "🟡 Loading model..."
          : "🔴 No pose — step back & face camera"}
         </div>
         <div style={{ color: "#888", fontSize: 11 }}>{isPlank ? "SECS" : "REPS"}</div>
@@ -176,6 +232,7 @@ function HUD({ exercise, repState, accuracy, sessionSecs, calories, poseStatus }
   );
 }
 
+// ── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [screen, setScreen]           = useState("home");
   const [exercise, setExercise]       = useState(EXERCISES[0]);
@@ -190,7 +247,7 @@ export default function App() {
 
   const videoRef      = useRef(null);
   const canvasRef     = useRef(null);
-  const poseRef       = useRef(null);
+  const detectorRef   = useRef(null);
   const stateRef      = useRef({ reps: 0, current: "STANDING" });
   const plankStartRef = useRef(null);
   const activeTimeRef = useRef(0);
@@ -198,17 +255,23 @@ export default function App() {
   const accuracyRef   = useRef({ good: 0, total: 0 });
   const frameLoopRef  = useRef(null);
   const lastRepRef    = useRef(0);
+  const runningRef    = useRef(false);
 
+  // Load TensorFlow.js + MoveNet scripts
   useEffect(() => {
-    const script1 = document.createElement("script");
-    script1.src = "https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js";
-    script1.crossOrigin = "anonymous";
-    document.head.appendChild(script1);
+    const loadScript = (src) => new Promise((resolve) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = resolve;
+      document.head.appendChild(s);
+    });
 
-    const script2 = document.createElement("script");
-    script2.src = "https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js";
-    script2.crossOrigin = "anonymous";
-    document.head.appendChild(script2);
+    (async () => {
+      await loadScript("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.11.0/dist/tf-core.min.js");
+      await loadScript("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.11.0/dist/tf-backend-webgl.min.js");
+      await loadScript("https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js");
+      window._tfReady = true;
+    })();
   }, []);
 
   useEffect(() => {
@@ -232,104 +295,39 @@ export default function App() {
     accuracyRef.current = { good: 0, total: 0 };
     plankStartRef.current = null;
     lastRepRef.current = 0;
+    runningRef.current = true;
     setPoseStatus("loading");
 
+    // Wait for TF scripts to load
     await new Promise(resolve => {
-      if (window.Pose) return resolve();
+      if (window._tfReady && window.poseDetection) return resolve();
       const check = setInterval(() => {
-        if (window.Pose) { clearInterval(check); resolve(); }
+        if (window._tfReady && window.poseDetection) {
+          clearInterval(check);
+          resolve();
+        }
       }, 200);
     });
 
-    const pose = new window.Pose({
-      locateFile: (file) =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
-    });
+    // Init TF WebGL backend
+    await window.tf.setBackend("webgl");
+    await window.tf.ready();
 
-    pose.setOptions({
-      modelComplexity: 1,
-      smoothLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
-
-    pose.onResults((results) => {
-      const canvas = canvasRef.current;
-      const video  = videoRef.current;
-      if (!canvas || !video) return;
-
-      const ctx = canvas.getContext("2d");
-      canvas.width  = video.videoWidth  || 640;
-      canvas.height = video.videoHeight || 480;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      if (!results.poseLandmarks) {
-        setPoseStatus("lost");
-        return;
+    // Create MoveNet detector — Lightning variant = fastest
+    const detector = await window.poseDetection.createDetector(
+      window.poseDetection.SupportedModels.MoveNet,
+      {
+        modelType: window.poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+        enableSmoothing: true,
       }
+    );
+    detectorRef.current = detector;
 
-      setPoseStatus("detecting");
-      const lm = results.poseLandmarks;
-      drawSkeleton(ctx, lm, canvas.width, canvas.height);
-
-      const now = Date.now();
-      const elapsed = (now - lastCalRef.current) / 1000;
-      lastCalRef.current = now;
-      activeTimeRef.current += elapsed;
-      const met = MET_VALUES[exercise.id] || 4;
-      setCalories(prev => prev + (met * 70 * elapsed) / 3600);
-
-      let result;
-      if (exercise.id === "squats")       result = analyzeSquat(lm, stateRef.current);
-      else if (exercise.id === "pushups") result = analyzePushup(lm, stateRef.current);
-      else if (exercise.id === "plank") {
-        if (!plankStartRef.current) plankStartRef.current = Date.now();
-        result = analyzePlank(lm, stateRef.current, plankStartRef.current);
-      }
-      else result = analyzeCurl(lm, stateRef.current);
-
-      // Voice: announce each new rep
-      if (result.reps > lastRepRef.current) {
-        speak(`${result.reps}`);
-        lastRepRef.current = result.reps;
-      }
-      // Voice: form feedback (once every 30 frames)
-      if (result.feedback.length > 0 && accuracyRef.current.total % 30 === 0) {
-        speak(result.feedback[0]);
-      }
-
-      stateRef.current = result;
-      setRepState({ reps: result.reps, current: result.current });
-      setFeedback(result.feedback);
-
-      accuracyRef.current.total++;
-      if (result.feedback.length === 0) accuracyRef.current.good++;
-      const acc = Math.round(
-        (accuracyRef.current.good / accuracyRef.current.total) * 100
-      );
-      setAccuracy(acc);
-
-      if (result.angle && lm[25]) {
-        ctx.fillStyle = "#ffeb3b";
-        ctx.font = "bold 18px Arial";
-        ctx.fillText(
-          `${result.label}: ${result.angle}°`,
-          lm[25].x * canvas.width + 10,
-          lm[25].y * canvas.height
-        );
-      }
-    });
-
-    poseRef.current = pose;
-
+    // Get camera
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "user" },
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        }
+        video: { facingMode: { ideal: "user" }, width: { ideal: 640 }, height: { ideal: 480 } }
       });
     } catch (e1) {
       try {
@@ -342,33 +340,115 @@ export default function App() {
     }
 
     videoRef.current.srcObject = stream;
-    await new Promise(resolve => {
-      videoRef.current.onloadedmetadata = resolve;
-    });
+    await new Promise(resolve => { videoRef.current.onloadedmetadata = resolve; });
     await videoRef.current.play();
 
-    // 15fps frame loop
-    frameLoopRef.current = setInterval(async () => {
-      if (
-        videoRef.current &&
-        videoRef.current.readyState >= 2 &&
-        poseRef.current
-      ) {
-        try {
-          await poseRef.current.send({ image: videoRef.current });
-        } catch (e) { /* ignore */ }
+    // Detection loop — requestAnimationFrame for smoothness
+    const detect = async () => {
+      if (!runningRef.current) return;
+
+      const video  = videoRef.current;
+      const canvas = canvasRef.current;
+      if (!video || !canvas || video.readyState < 2) {
+        frameLoopRef.current = requestAnimationFrame(detect);
+        return;
       }
-    }, 67);
+
+      try {
+        const poses = await detectorRef.current.estimatePoses(video);
+        const ctx = canvas.getContext("2d");
+        canvas.width  = video.videoWidth  || 640;
+        canvas.height = video.videoHeight || 480;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (!poses || poses.length === 0 || !poses[0].keypoints) {
+          setPoseStatus("lost");
+          frameLoopRef.current = requestAnimationFrame(detect);
+          return;
+        }
+
+        const kps = poses[0].keypoints;
+
+        // Check if enough keypoints are confident
+        const visibleCount = kps.filter(k => k.score > 0.3).length;
+        if (visibleCount < 8) {
+          setPoseStatus("lost");
+          frameLoopRef.current = requestAnimationFrame(detect);
+          return;
+        }
+
+        setPoseStatus("detecting");
+        drawSkeleton(ctx, kps, canvas.width, canvas.height);
+
+        // Timer + calories
+        const now = Date.now();
+        const elapsed = (now - lastCalRef.current) / 1000;
+        lastCalRef.current = now;
+        activeTimeRef.current += elapsed;
+        const met = MET_VALUES[exercise.id] || 4;
+        setCalories(prev => prev + (met * 70 * elapsed) / 3600);
+
+        // Analyze exercise
+        let result;
+        const exId = exercise.id;
+        if      (exId === "squats")   result = analyzeSquat(kps, stateRef.current);
+        else if (exId === "pushups")  result = analyzePushup(kps, stateRef.current);
+        else if (exId === "plank") {
+          if (!plankStartRef.current) plankStartRef.current = Date.now();
+          result = analyzePlank(kps, stateRef.current, plankStartRef.current);
+        }
+        else result = analyzeCurl(kps, stateRef.current);
+
+        // Voice: new rep
+        if (result.reps > lastRepRef.current) {
+          speak(`${result.reps}`);
+          lastRepRef.current = result.reps;
+        }
+        // Voice: form tip (every 45 frames)
+        if (result.feedback.length > 0 && accuracyRef.current.total % 45 === 0) {
+          speak(result.feedback[0]);
+        }
+
+        stateRef.current = result;
+        setRepState({ reps: result.reps, current: result.current });
+        setFeedback(result.feedback);
+
+        accuracyRef.current.total++;
+        if (result.feedback.length === 0) accuracyRef.current.good++;
+        setAccuracy(Math.round(
+          (accuracyRef.current.good / accuracyRef.current.total) * 100
+        ));
+
+        // Draw angle label
+        const anchorKp = kps[KP.LEFT_KNEE];
+        if (result.angle && anchorKp && anchorKp.score > 0.3) {
+          ctx.fillStyle = "#ffeb3b";
+          ctx.font = "bold 18px Arial";
+          ctx.fillText(
+            `${result.label}: ${result.angle}°`,
+            anchorKp.x * canvas.width + 10,
+            anchorKp.y * canvas.height
+          );
+        }
+      } catch (e) {
+        // ignore detection errors
+      }
+
+      frameLoopRef.current = requestAnimationFrame(detect);
+    };
+
+    detect();
   };
 
   const endWorkout = async () => {
+    runningRef.current = false;
     if (frameLoopRef.current) {
-      clearInterval(frameLoopRef.current);
+      cancelAnimationFrame(frameLoopRef.current);
       frameLoopRef.current = null;
     }
     const stream = videoRef.current?.srcObject;
     stream?.getTracks().forEach(t => t.stop());
-    poseRef.current?.close();
+    detectorRef.current?.dispose();
     window.speechSynthesis?.cancel();
 
     try {
@@ -399,7 +479,7 @@ export default function App() {
     }
   };
 
-  const fmtTime = (s) => `${Math.floor(s/60)}m ${s%60}s`;
+  const fmtTime = (s) => `${Math.floor(s / 60)}m ${s % 60}s`;
   const accColor = (a) => a >= 80 ? "#00e676" : a >= 60 ? "#ffa726" : "#ef5350";
 
   const baseStyle = {
@@ -407,6 +487,7 @@ export default function App() {
     fontFamily: "'Segoe UI', sans-serif"
   };
 
+  // HOME SCREEN
   if (screen === "home") return (
     <div style={{ ...baseStyle, display: "flex", flexDirection: "column",
                   alignItems: "center", padding: "40px 20px" }}>
@@ -463,6 +544,7 @@ export default function App() {
     </div>
   );
 
+  // WORKOUT SCREEN
   if (screen === "workout") return (
     <div style={{ ...baseStyle, position: "relative", overflow: "hidden" }}>
       <video ref={videoRef} style={{
@@ -489,10 +571,9 @@ export default function App() {
         }}>
           {feedback.map((msg, i) => (
             <div key={i} style={{
-              background: "rgba(200, 0, 0, 0.85)",
-              padding: "10px 20px", borderRadius: 8,
-              fontSize: 16, fontWeight: 600, textAlign: "center",
-              border: "1px solid #ff4444"
+              background: "rgba(200,0,0,0.85)", padding: "10px 20px",
+              borderRadius: 8, fontSize: 16, fontWeight: 600,
+              textAlign: "center", border: "1px solid #ff4444"
             }}>
               ⚠️ {msg}
             </div>
@@ -534,6 +615,7 @@ export default function App() {
     </div>
   );
 
+  // HISTORY SCREEN
   if (screen === "history") return (
     <div style={{ ...baseStyle, padding: "24px 20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
